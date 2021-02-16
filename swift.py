@@ -13,6 +13,19 @@ from bottle import template
 # development server
 from bottle import run 
 
+import json
+import dataset
+import time
+from random import randint, seed
+
+# ---------------------------
+# session mangement 
+# ---------------------------
+session_db = dataset.connect('sqlite:///session.db')
+seed()
+
+
+
 # ---------------------------
 # web application routes
 # ---------------------------
@@ -20,14 +33,87 @@ from bottle import run
 @route('/')
 @route('/tasks')
 def tasks():
-    username = request.get_cookie('username', 'guest') # When getting a cookie, you can set a default value
-    print("username = ", username)
-    # Things cookie stores: <host/url> <name> <value> [<expiration date>] <time>
-    response.set_cookie('username', 'greg')
-    return template("tasks.tpl") 
+    session_id = request.get_cookie('session_id', None) # When getting a cookie, you can set a default value
+    if session_id:
+        session_id = int(session_id)
+    else:
+        session_id = randint(10000000, 20000000)
+    # try to load session information
+    session_table = session_db.create_table('session')
+    sessions = list(session_table.find(session_id=session_id))
+    if len(sessions) == 0:
+        # we need to create a session
+        session = {
+                    "session_id": session_id,
+                    "started_at": time.time()
+                }
+        session_table.insert(session)
+    else:
+        session = sessions[0]
+    
+    # update session
+    if "visits" in session:
+        session['visits'] = session['visits'] + 1
+    else:
+        session['visits'] = 1
 
-@route('/login')
-def login():
+    print(session)
+
+    # persist the session
+    session_table.update(row=session, keys=['session_id'])
+
+    print("session_id in request = ", session_id)
+    # Things cookie stores: <host/url> <name> <value> [<expiration date>] <time>
+    response.set_cookie('session_id', str(session_id))
+    print("session_id sent in response = ", session_id)
+    return template("tasks.tpl")
+
+@route('/session')
+def tasks():
+    session_id = request.get_cookie('session_id', None) # When getting a cookie, you can set a default value
+    if session_id:
+        session_id = int(session_id)
+        session_table = session_db.create_table('session')
+        sessions = list(session_table.find(session_id=session_id))
+        if len(list(sessions)) > 0:
+            session=sessions[0]
+        else:
+            session = {}
+    else:
+        session = {}
+    response.set_cookie('session_id', str(session_id))
+    return template("session.tpl", session_str=str(dict(session)))
+
+@route('/login/<user>')
+def login(user):
+    username = user
+    print(username)
+    session_id = request.get_cookie('session_id', None) # When getting a cookie, you can set a default value
+    if session_id:
+        session_id = int(session_id)
+    else:
+        session_id = randint(10000000, 20000000)
+    # try to load session information
+    session_table = session_db.create_table('session')
+    sessions = list(session_table.find(session_id=session_id))
+    if len(sessions) == 0:
+        # we need to create a session
+        session = {
+                    "session_id": session_id,
+                    "started_at": time.time()
+                }
+        session_table.insert(session)
+    else:
+        session = sessions[0]
+    
+    # update session
+    session['username'] = username
+
+    print(session)
+
+    # persist the session
+    session_table.update(row=session, keys=['session_id'])
+
     return template("login.tpl") 
 
 @route('/register')
@@ -37,11 +123,6 @@ def login():
 # ---------------------------
 # task REST api 
 # ---------------------------
-
-import json
-import dataset
-import time
-
 taskbook_db = dataset.connect('sqlite:///taskbook.db')  
 
 @get('/api/tasks')
